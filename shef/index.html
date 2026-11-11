@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Яичный переполох</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;800;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* Layout: one bright kitchen scene. Gingham red is the accent; the orange pill and the
+     heavy white titles follow the «Малыш-шеф» episode covers. HUD and menus float on top. */
+  --wall:#9CCABB;
+  --ink:#3A2318;
+  --soft:#6E5444;
+  --paper:#FFF8EC;
+  --red:#E23B3B;
+  --orange:#F7941D;
+  --font-display:"Montserrat","Arial Black","Segoe UI",system-ui,sans-serif;
+  --font-body:"Montserrat","Segoe UI",Roboto,system-ui,sans-serif;
+  --st:max(14px,env(safe-area-inset-top));
+  --sb:max(18px,env(safe-area-inset-bottom));
+  --sl:max(16px,env(safe-area-inset-left));
+  --sr:max(16px,env(safe-area-inset-right));
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{
+  background:var(--wall);color:var(--ink);font-family:var(--font-body);font-weight:500;
+  overflow:hidden;overscroll-behavior:none;
+  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;
+  -webkit-tap-highlight-color:transparent;touch-action:manipulation;
+}
+#game{position:relative;height:100%;overflow:hidden;background:var(--wall)}
+#stage{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#world{transition:transform .55s cubic-bezier(.2,.8,.2,1)}
+#world.shake{animation:shake .32s linear}
+@keyframes shake{20%{transform:translate(-12px,5px)}40%{transform:translate(10px,-5px)}60%{transform:translate(-7px,3px)}80%{transform:translate(4px,-2px)}}
+
+/* scene motion */
+.cloud{animation:drift 38s ease-in-out infinite alternate}
+@keyframes drift{to{transform:translateX(60px)}}
+.steam circle{transform-box:fill-box;transform-origin:50% 50%;opacity:0;animation:steam 2.4s linear infinite}
+.steam circle:nth-child(2){animation-delay:-.8s}
+.steam circle:nth-child(3){animation-delay:-1.6s}
+@keyframes steam{0%{transform:translate(0,0) scale(.6);opacity:0}20%{opacity:.8}100%{transform:translate(8px,-58px) scale(1.6);opacity:0}}
+.hen-b{transform-box:fill-box;transform-origin:50% 100%;animation:henIdle 2.8s ease-in-out infinite}
+.hen-b.lay{animation:henLay .36s ease-out}
+@keyframes henIdle{50%{transform:translateY(-2px) rotate(-1.5deg)}}
+@keyframes henLay{0%{transform:scale(1,1)}35%{transform:scale(1.12,.82)}70%{transform:scale(.94,1.1)}100%{transform:scale(1,1)}}
+.splat{animation:fadeOut .6s 1.4s forwards}
+@keyframes fadeOut{to{opacity:0}}
+.pop,.dishText{font:900 30px var(--font-display);fill:#fff;stroke:var(--ink);stroke-width:6px;paint-order:stroke;stroke-linejoin:round;text-anchor:middle;pointer-events:none}
+.pop{animation:pop .8s ease-out forwards}
+.pop.gold{fill:#FFD23F}
+.pop.tune{font-size:26px;animation-duration:2.2s}
+@keyframes pop{to{transform:translateY(-60px);opacity:0}}
+.dishText{font-size:30px}
+.dish{transform-box:fill-box;transform-origin:50% 50%;animation:dish 1.9s ease-out forwards}
+@keyframes dish{0%{transform:scale(.3);opacity:0}12%{transform:scale(1.12);opacity:1}20%{transform:scale(1)}75%{transform:scale(1);opacity:1}100%{transform:translateY(-46px);opacity:0}}
+
+/* HUD */
+.hud{
+  position:absolute;inset:0 0 auto 0;display:grid;grid-template-columns:1fr auto 1fr;align-items:start;
+  gap:10px;padding:var(--st) var(--sr) 0 var(--sl);pointer-events:none;
+}
+.lives{display:flex;gap:6px;padding-top:8px}
+.lives svg{width:22px;height:28px;transition:opacity .3s,transform .3s}
+.lives svg.lost{opacity:.25;transform:rotate(18deg) translateY(3px)}
+.score{text-align:center;line-height:1}
+.score output{display:block;font:900 42px/1 var(--font-display);font-variant-numeric:tabular-nums;letter-spacing:-.02em;color:#fff;
+  text-shadow:0 2px 0 var(--ink),2px 0 0 var(--ink),-2px 0 0 var(--ink),0 -2px 0 var(--ink),0 5px 0 rgba(58,35,24,.35)}
+.score output.bump{animation:bump .22s ease-out}
+@keyframes bump{40%{transform:scale(1.18)}}
+.score small{display:block;margin-top:8px;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--ink)}
+.tools{display:flex;gap:6px;justify-content:flex-end;pointer-events:auto}
+.tool{
+  width:40px;height:40px;border-radius:50%;border:1px solid rgba(58,35,24,.18);
+  background:rgba(255,248,236,.9);color:var(--ink);display:grid;place-items:center;padding:0;cursor:pointer;
+}
+.tool svg{width:19px;height:19px}
+.tool[hidden]{display:none}
+#btnSound .slash{display:none}
+#btnSound.off .slash{display:block}
+#btnSound.off .wave{display:none}
+body:not([data-state="play"]) .lives,
+body:not([data-state="play"]) .score,
+body:not([data-state="play"]) #btnPause{visibility:hidden}
+
+/* thumb pads */
+.pad{
+  position:absolute;width:68px;height:68px;border-radius:50%;padding:0;
+  border:2px solid rgba(58,35,24,.4);background:rgba(255,248,236,.6);color:var(--ink);
+  display:grid;place-items:center;touch-action:none;cursor:pointer;
+}
+.pad svg{width:26px;height:26px}
+.pad[data-lane="0"]{left:var(--sl);bottom:calc(var(--sb) + 82px)}
+.pad[data-lane="1"]{left:var(--sl);bottom:var(--sb)}
+.pad[data-lane="2"]{right:var(--sr);bottom:calc(var(--sb) + 82px)}
+.pad[data-lane="3"]{right:var(--sr);bottom:var(--sb)}
+.pad[data-lane="0"] svg{transform:rotate(-90deg)}
+.pad[data-lane="1"] svg{transform:rotate(180deg)}
+.pad[data-lane="3"] svg{transform:rotate(90deg)}
+.pad.on{background:var(--red);border-color:var(--red);color:#fff}
+body:not([data-state="play"]) .pads{display:none}
+
+/* menus */
+.menu{
+  position:absolute;inset:0;display:none;flex-direction:column;justify-content:space-between;gap:20px;
+  padding:var(--st) 20px var(--sb);pointer-events:none;
+}
+body[data-state="menu"] #menuStart,
+body[data-state="over"] #menuOver,
+body[data-state="pause"] #menuPause{display:flex}
+.menu>*{pointer-events:auto}
+.head{max-width:22rem;padding-right:100px}
+.kicker{display:inline-block;margin:4px 0 10px;padding:7px 13px;border-radius:11px;background:var(--orange);color:#2A1608;
+  font-size:13px;font-weight:900;letter-spacing:.06em;text-transform:uppercase}
+h1{margin:0;font:900 clamp(34px,10.5vw,56px)/.98 var(--font-display);letter-spacing:-.01em;text-transform:uppercase;color:#fff;
+  text-shadow:0 3px 0 var(--ink),3px 0 0 var(--ink),-3px 0 0 var(--ink),0 -3px 0 var(--ink),2px 2px 0 var(--ink),-2px 2px 0 var(--ink),2px -2px 0 var(--ink),-2px -2px 0 var(--ink),0 8px 0 rgba(58,35,24,.3)}
+h1 span{color:var(--orange);display:block}
+h1.num{font-size:clamp(72px,24vw,120px);font-variant-numeric:tabular-nums}
+.sub{display:inline-block;margin:14px 0 0;padding:10px 14px;border-radius:14px;background:rgba(255,248,236,.9);font-size:15px;font-weight:600;line-height:1.45}
+.sub b{color:var(--red);font-weight:800}
+.panel{
+  width:100%;max-width:24rem;display:grid;gap:12px;padding:16px;border-radius:22px;
+  background:rgba(255,248,236,.95);border:1px solid rgba(58,35,24,.12);box-shadow:0 10px 30px rgba(58,35,24,.22);
+}
+.panel p{margin:0;font-size:15px;line-height:1.4}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:14px;background:rgba(58,35,24,.09)}
+.seg button{
+  height:40px;border:0;border-radius:10px;background:transparent;color:var(--ink);
+  font:800 14px var(--font-display);cursor:pointer;
+}
+.seg button[aria-checked="true"]{background:var(--ink);color:var(--paper)}
+.cap{font-size:13px;color:var(--soft)}
+.btn{
+  height:54px;border:0;border-radius:16px;background:var(--red);color:#fff;
+  font:900 17px var(--font-display);letter-spacing:.02em;cursor:pointer;box-shadow:0 4px 0 #B32929;
+}
+.btn:active{transform:translateY(2px);box-shadow:0 2px 0 #B32929}
+.btn.ghost{height:46px;background:transparent;color:var(--ink);border:2px solid rgba(58,35,24,.3);font-size:14px;box-shadow:none}
+.hint{font-size:13px;line-height:1.4;color:var(--soft)}
+.hint kbd{font:800 12px var(--font-body);color:var(--ink);padding:1px 6px;border-radius:6px;border:1.5px solid rgba(58,35,24,.35)}
+.hint-keys{display:none}
+button:focus-visible{outline:3px solid var(--ink);outline-offset:3px}
+@media (hover:hover) and (pointer:fine){
+  .pads{display:none}
+  .hint-keys{display:block}.hint-touch{display:none}
+}
+@media (min-aspect-ratio:3/2){
+  .menu{justify-content:center;gap:28px;padding-left:max(6vw,28px,env(safe-area-inset-left))}
+  .head{padding-right:0}
+  .panel{max-width:21rem}
+}
+@media (max-height:520px){
+  .menu{gap:10px;padding-top:10px;padding-bottom:10px}
+  .kicker{margin:0 0 6px;padding:5px 10px;font-size:11px}
+  h1{font-size:30px}h1.num{font-size:50px}
+  .sub{margin-top:8px;padding:6px 10px;font-size:13px}
+  .panel{max-width:19rem;gap:8px;padding:12px}
+  .panel p{display:none}
+  .btn{height:46px}.btn.ghost{height:40px}
+  .score output{font-size:32px}
+  .pad{width:64px;height:64px}
+}
+@media (prefers-reduced-motion:reduce){
+  .cloud,.steam circle,.hen-b,#world.shake{animation:none}
+  #world{transition:none}
+}
+</style>
+</head>
+<body data-state="menu">
+<div id="game">
+
+<svg id="stage" viewBox="0 0 800 1000" role="img" aria-label="Малыш-шеф с кастрюлькой стоит на кухне между четырьмя полками, по которым катятся яйца">
+  <defs>
+    <pattern id="tile" width="80" height="80" patternUnits="userSpaceOnUse">
+      <rect width="80" height="80" fill="#9CCABB"/>
+      <path d="M0 1H80M1 0V80" stroke="#fff" stroke-opacity=".32" stroke-width="2"/>
+    </pattern>
+    <pattern id="gingham" width="16" height="16" patternUnits="userSpaceOnUse">
+      <rect width="16" height="16" fill="#fff"/>
+      <rect width="8" height="16" fill="#E23B3B" fill-opacity=".5"/>
+      <rect width="16" height="8" fill="#E23B3B" fill-opacity=".5"/>
+    </pattern>
+    <pattern id="floor" width="200" height="56" patternUnits="userSpaceOnUse">
+      <rect width="200" height="56" fill="#BC8650"/>
+      <path d="M0 1H200M0 29H200M60 1V29M150 29V56" stroke="#93613A" stroke-opacity=".55" stroke-width="2" fill="none"/>
+    </pattern>
+    <radialGradient id="glow">
+      <stop offset="0" stop-color="#FFF6DC" stop-opacity=".6"/>
+      <stop offset="1" stop-color="#FFF6DC" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="skyWin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#AEDDF7"/><stop offset="1" stop-color="#EAF7FD"/>
+    </linearGradient>
+    <clipPath id="glass"><rect x="298" y="104" width="204" height="208" rx="4"/></clipPath>
+    <g id="puff">
+      <circle cx="-42" cy="-154" r="30"/><circle cx="42" cy="-154" r="30"/><circle cx="-22" cy="-172" r="32"/><circle cx="22" cy="-172" r="32"/><circle cx="0" cy="-182" r="34"/>
+      <rect x="-56" y="-138" width="112" height="34" rx="9"/>
+    </g>
+  </defs>
+  <g id="world">
+
+  <!-- tiled wall with morning light -->
+  <rect x="-2400" y="-1600" width="5600" height="2500" fill="url(#tile)"/>
+  <circle cx="400" cy="140" r="560" fill="url(#glow)"/>
+
+  <!-- window with a gingham valance, basil and a polka-dot mug on the sill -->
+  <rect x="284" y="90" width="232" height="236" rx="12" fill="#FFF8EC" stroke="#E3D5BE" stroke-width="2"/>
+  <rect x="298" y="104" width="204" height="208" rx="4" fill="url(#skyWin)"/>
+  <g clip-path="url(#glass)">
+    <circle cx="452" cy="166" r="30" fill="#FFE59A"/>
+    <g class="cloud" fill="#fff"><ellipse cx="334" cy="176" rx="34" ry="13"/><ellipse cx="358" cy="166" rx="22" ry="12"/><ellipse cx="430" cy="232" rx="30" ry="11"/></g>
+    <path d="M298 292Q352 250 414 282Q462 304 502 268V312H298Z" fill="#9FD38C"/>
+    <path d="M298 304Q380 280 502 300V312H298Z" fill="#7FC072"/>
+  </g>
+  <path d="M396 104h8v208h-8zM298 204h204v8H298z" fill="#FFF8EC"/>
+  <path d="M284 90H516V132q-14.5 16 -29 0q-14.5 16 -29 0q-14.5 16 -29 0q-14.5 16 -29 0q-14.5 16 -29 0q-14.5 16 -29 0q-14.5 16 -29 0q-14.5 16 -29 0Z" fill="url(#gingham)" stroke="#C93030" stroke-width="2" stroke-linejoin="round"/>
+  <rect x="270" y="322" width="260" height="14" rx="6" fill="#C58B55"/>
+  <rect x="270" y="322" width="260" height="4" rx="2" fill="#E2B383"/>
+  <g fill="#4E9A4E"><circle cx="320" cy="280" r="11"/><circle cx="348" cy="280" r="11"/><circle cx="342" cy="256" r="9"/></g>
+  <g fill="#62B257"><circle cx="334" cy="268" r="13"/><circle cx="328" cy="256" r="9"/></g>
+  <path d="M312 322l5 -28h30l5 28z" fill="#C9683E"/><rect x="313" y="290" width="38" height="8" rx="4" fill="#B5562F"/>
+  <path d="M486 300q12 0 12 9t-12 9" fill="none" stroke="#E23B3B" stroke-width="5"/>
+  <rect x="452" y="292" width="34" height="30" rx="6" fill="#E23B3B"/>
+  <g fill="#fff"><circle cx="461" cy="302" r="2.6"/><circle cx="474" cy="300" r="2.6"/><circle cx="467" cy="312" r="2.6"/><circle cx="479" cy="312" r="2.6"/></g>
+
+  <!-- shelf with jars -->
+  <path d="M84 207l10 18M236 207l-10 18" stroke="#9A6338" stroke-width="6" stroke-linecap="round"/>
+  <rect x="62" y="196" width="196" height="11" rx="5" fill="#C58B55"/><rect x="62" y="196" width="196" height="4" rx="2" fill="#E2B383"/>
+  <rect x="78" y="132" width="44" height="64" rx="8" fill="#EAF6F3" stroke="#fff" stroke-width="2"/><rect x="82" y="158" width="36" height="34" rx="5" fill="#F0C96A"/><rect x="82" y="124" width="36" height="10" rx="4" fill="#9A6338"/>
+  <rect x="136" y="150" width="40" height="46" rx="7" fill="#E23B3B"/><rect x="134" y="144" width="44" height="9" rx="4" fill="#FFF8EC"/>
+  <g fill="#fff"><circle cx="147" cy="164" r="3"/><circle cx="164" cy="168" r="3"/><circle cx="152" cy="182" r="3"/><circle cx="168" cy="186" r="3"/></g>
+  <rect x="192" y="122" width="50" height="74" rx="9" fill="#EAF6F3" stroke="#fff" stroke-width="2"/><rect x="197" y="150" width="40" height="42" rx="5" fill="#FBF3E4"/><rect x="198" y="114" width="38" height="10" rx="4" fill="#9A6338"/>
+
+  <!-- clock (shows the real time) and a rail of utensils -->
+  <circle cx="646" cy="150" r="50" fill="#E23B3B"/><circle cx="646" cy="150" r="41" fill="#FFF8EC"/>
+  <path d="M646 114v8M646 178v8M610 150h8M674 150h8" stroke="#3A2318" stroke-width="3" stroke-linecap="round"/>
+  <line id="clockH" x1="646" y1="150" x2="646" y2="128" stroke="#3A2318" stroke-width="5" stroke-linecap="round"/>
+  <line id="clockM" x1="646" y1="150" x2="646" y2="117" stroke="#3A2318" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="646" cy="150" r="4.5" fill="#E23B3B"/>
+  <path d="M560 236H694" stroke="#9A6338" stroke-width="6" stroke-linecap="round"/>
+  <path d="M584 238v34M626 238v30M668 238v32" stroke="#C58B55" stroke-width="5" stroke-linecap="round"/>
+  <ellipse cx="584" cy="284" rx="11" ry="14" fill="#C58B55"/>
+  <rect x="615" y="266" width="22" height="28" rx="5" fill="#E23B3B"/>
+  <path d="M668 268q-12 14 0 28q12 -14 0 -28M668 268v28" fill="none" stroke="#8C96A0" stroke-width="2.5"/>
+
+  <!-- off to the sides, seen on wide screens: stove and fridge -->
+  <rect x="-2400" y="856" width="5600" height="24" fill="#FFF8EC"/><rect x="-2400" y="856" width="5600" height="4" fill="#E3D5BE"/>
+  <g transform="translate(92 0)">
+  <rect x="-352" y="604" width="250" height="276" rx="10" fill="#FFF8EC" stroke="#E3D5BE" stroke-width="2"/>
+  <rect x="-360" y="590" width="266" height="18" rx="6" fill="#4A4A55"/>
+  <rect x="-326" y="676" width="198" height="140" rx="10" fill="#3A3A45"/><rect x="-312" y="690" width="170" height="112" rx="6" fill="#57525C"/>
+  <rect x="-326" y="656" width="198" height="8" rx="4" fill="#C9C2B6"/>
+  <g fill="#E23B3B"><circle cx="-310" cy="632" r="9"/><circle cx="-272" cy="632" r="9"/><circle cx="-182" cy="632" r="9"/><circle cx="-144" cy="632" r="9"/></g>
+  <g class="steam" fill="#fff"><circle cx="-268" cy="520" r="10"/><circle cx="-246" cy="516" r="12"/><circle cx="-232" cy="522" r="9"/></g>
+  <rect x="-300" y="544" width="92" height="46" rx="8" fill="#E23B3B"/><rect x="-306" y="538" width="104" height="10" rx="5" fill="#C93030"/><circle cx="-254" cy="532" r="7" fill="#3A2318"/>
+  <g fill="#fff"><circle cx="-282" cy="560" r="4"/><circle cx="-254" cy="566" r="4"/><circle cx="-226" cy="560" r="4"/><circle cx="-268" cy="578" r="4"/><circle cx="-240" cy="578" r="4"/></g>
+  </g>
+  <rect x="900" y="330" width="230" height="550" rx="22" fill="#F4F7F2" stroke="#D5DED6" stroke-width="3"/>
+  <path d="M900 520H1130" stroke="#D5DED6" stroke-width="4"/>
+  <rect x="918" y="438" width="10" height="62" rx="5" fill="#B8C2BC"/><rect x="918" y="544" width="10" height="92" rx="5" fill="#B8C2BC"/>
+  <circle cx="1012" cy="400" r="9" fill="#E23B3B"/><circle cx="1052" cy="424" r="8" fill="#F7941D"/>
+  <g transform="rotate(-6 1040 610)"><rect x="1004" y="566" width="72" height="88" rx="4" fill="#fff" stroke="#E3D5BE" stroke-width="2"/><ellipse cx="1040" cy="614" rx="22" ry="17" fill="#FFF8EC" stroke="#E3D5BE" stroke-width="2"/><circle cx="1040" cy="614" r="8" fill="#FFB52E"/><circle cx="1040" cy="572" r="5" fill="#4A90D9"/></g>
+
+  <!-- floor and a gingham rug -->
+  <rect x="-2400" y="878" width="5600" height="2600" fill="url(#floor)"/>
+  <ellipse cx="400" cy="906" rx="214" ry="26" fill="url(#gingham)" stroke="#C93030" stroke-width="4"/>
+
+  <!-- wooden upright with two sloped shelves; mirrored for the right side -->
+  <g id="coop">
+    <rect x="4" y="250" width="24" height="630" rx="6" fill="#A46A3A"/>
+    <rect x="4" y="250" width="7" height="630" rx="3.5" fill="#C58B55"/>
+    <path d="M26 482L122 432M26 668L134 622" stroke="#9A6338" stroke-width="9" stroke-linecap="round" fill="none"/>
+    <line x1="-10" y1="376" x2="196" y2="458" stroke="#5E3A1C" stroke-opacity=".3" stroke-width="13" stroke-linecap="round"/>
+    <line x1="-10" y1="372" x2="196" y2="454" stroke="#C58B55" stroke-width="13" stroke-linecap="round"/>
+    <line x1="-10" y1="368" x2="194" y2="449" stroke="#EBC79C" stroke-width="3" stroke-linecap="round"/>
+    <line x1="-10" y1="561" x2="250" y2="664.5" stroke="#5E3A1C" stroke-opacity=".3" stroke-width="13" stroke-linecap="round"/>
+    <line x1="-10" y1="557" x2="250" y2="660.5" stroke="#C58B55" stroke-width="13" stroke-linecap="round"/>
+    <line x1="-10" y1="553" x2="248" y2="655.5" stroke="#EBC79C" stroke-width="3" stroke-linecap="round"/>
+  </g>
+  <use href="#coop" transform="translate(800 0) scale(-1 1)"/>
+
+  <!-- Малыш-шеф: every part is posed each frame by drawKid() -->
+  <ellipse id="shadow" cx="400" cy="888" rx="80" ry="11" fill="#3A2318" opacity=".25"/>
+  <g fill="none" stroke-linecap="round">
+    <path id="legL" stroke="#3D4E73" stroke-width="26"/>
+    <path id="legR" stroke="#3D4E73" stroke-width="26"/>
+  </g>
+  <g id="footL"><ellipse rx="25" ry="11" fill="#E23B3B"/><path d="M-24 4Q0 13 24 4" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round"/></g>
+  <g id="footR"><ellipse rx="25" ry="11" fill="#E23B3B"/><path d="M-24 4Q0 13 24 4" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round"/></g>
+  <g id="torso">
+    <path d="M-44 10C-50 -30 -48 -80 -40 -98C-30 -110 30 -110 40 -98C48 -80 50 -30 44 10C20 18 -20 18 -44 10Z" fill="#fff" stroke="#D3C8B8" stroke-width="2.5"/>
+    <path d="M-20 -108L0 -88L20 -108" fill="#fff" stroke="#E23B3B" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="-14" cy="-82" r="4.5" fill="#E23B3B"/><circle cx="14" cy="-82" r="4.5" fill="#E23B3B"/>
+    <path d="M-22 -72L-15 -104M22 -72L15 -104" stroke="#D43434" stroke-width="5" stroke-linecap="round"/>
+    <path d="M-24 -72L24 -72L30 -42L48 -38C54 -8 54 22 50 38C20 46 -20 46 -50 38C-54 22 -54 -8 -48 -38L-30 -42Z" fill="url(#gingham)" stroke="#C93030" stroke-width="2.5" stroke-linejoin="round"/>
+    <path d="M-48 -38Q0 -29 48 -38" stroke="#C93030" stroke-width="3" fill="none"/>
+    <path d="M-15 -8H15V10Q15 18 7 18H-7Q-15 18 -15 10Z" fill="url(#gingham)" stroke="#C93030" stroke-width="2.5" stroke-linejoin="round"/>
+  </g>
+  <g fill="none" stroke-linecap="round">
+    <path id="armF0" stroke="#D3C8B8" stroke-width="27"/>
+    <path id="armF" stroke="#fff" stroke-width="22"/>
+    <path id="armF2" stroke="#F8CDAF" stroke-width="20" pathLength="100" stroke-dasharray="30 100" stroke-dashoffset="-70"/>
+    <path id="armN0" stroke="#D3C8B8" stroke-width="27"/>
+    <path id="armN" stroke="#fff" stroke-width="22"/>
+    <path id="armN2" stroke="#F8CDAF" stroke-width="20" pathLength="100" stroke-dasharray="30 100" stroke-dashoffset="-70"/>
+  </g>
+  <g id="head">
+    <ellipse cx="0" cy="-72" rx="74" ry="64" fill="#B9793C"/>
+    <g fill="#B9793C"><circle cx="-72" cy="-46" r="16"/><circle cx="-79" cy="-72" r="16"/><circle cx="-71" cy="-98" r="15"/><circle cx="72" cy="-46" r="16"/><circle cx="79" cy="-72" r="16"/><circle cx="71" cy="-98" r="15"/><circle cx="-60" cy="-26" r="13"/><circle cx="60" cy="-26" r="13"/></g>
+    <g fill="#CF9150"><circle cx="-80" cy="-62" r="7"/><circle cx="80" cy="-62" r="7"/><circle cx="-66" cy="-34" r="6"/><circle cx="66" cy="-34" r="6"/></g>
+    <circle cx="-63" cy="-56" r="12" fill="#F8CDAF"/><circle cx="63" cy="-56" r="12" fill="#F8CDAF"/>
+    <path d="M-66 -61q-5 5 0 10M66 -61q5 5 0 10" stroke="#E3A583" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <ellipse cx="0" cy="-64" rx="64" ry="60" fill="#F8CDAF"/>
+    <g fill="#B9793C"><circle cx="-52" cy="-102" r="14"/><circle cx="-32" cy="-108" r="15"/><circle cx="-10" cy="-110" r="15"/><circle cx="12" cy="-110" r="15"/><circle cx="34" cy="-107" r="15"/><circle cx="53" cy="-100" r="13"/></g>
+    <g fill="#CF9150"><circle cx="-36" cy="-100" r="5"/><circle cx="8" cy="-101" r="5"/><circle cx="40" cy="-98" r="5"/></g>
+    <g id="face">
+      <circle cx="-41" cy="-40" r="13" fill="#F4A39B" opacity=".6"/><circle cx="41" cy="-40" r="13" fill="#F4A39B" opacity=".6"/>
+      <g id="eyeL">
+        <g><ellipse rx="11" ry="13" fill="#fff" stroke="#5A3A28" stroke-width="2.5"/><g id="irisL"><circle r="8" fill="#4A90D9"/><circle r="4.2" fill="#1B2A44"/><circle cx="2.8" cy="-3" r="2.6" fill="#fff"/></g><path d="M-12 -5Q0 -16 12 -5" fill="none" stroke="#5A3A28" stroke-width="3.2" stroke-linecap="round"/></g>
+        <path d="M-11 4Q0 -10 11 4" fill="none" stroke="#5A3A28" stroke-width="4" stroke-linecap="round" display="none"/>
+      </g>
+      <g id="eyeR">
+        <g><ellipse rx="11" ry="13" fill="#fff" stroke="#5A3A28" stroke-width="2.5"/><g id="irisR"><circle r="8" fill="#4A90D9"/><circle r="4.2" fill="#1B2A44"/><circle cx="2.8" cy="-3" r="2.6" fill="#fff"/></g><path d="M-12 -5Q0 -16 12 -5" fill="none" stroke="#5A3A28" stroke-width="3.2" stroke-linecap="round"/></g>
+        <path d="M-11 4Q0 -10 11 4" fill="none" stroke="#5A3A28" stroke-width="4" stroke-linecap="round" display="none"/>
+      </g>
+      <path id="browL" d="M-36 -83Q-25 -90 -14 -86" stroke="#9A6330" stroke-width="4" stroke-linecap="round" fill="none"/>
+      <path id="browR" d="M36 -83Q25 -90 14 -86" stroke="#9A6330" stroke-width="4" stroke-linecap="round" fill="none"/>
+      <path d="M-5 -47Q0 -41 5 -47" stroke="#E0A07C" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <path id="mSmile" d="M-13 -32Q0 -19 13 -32" stroke="#9A3B2E" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+      <g id="mOpen" display="none"><path d="M-14 -34Q0 -8 14 -34Z" fill="#8A2A2A" stroke="#8A2A2A" stroke-width="2" stroke-linejoin="round"/><ellipse cx="0" cy="-20" rx="6" ry="4" fill="#FF8FA0"/></g>
+      <path id="mSad" d="M-11 -24Q0 -33 11 -24" stroke="#9A3B2E" stroke-width="3.5" stroke-linecap="round" fill="none" display="none"/>
+      <ellipse id="mWorry" cx="0" cy="-27" rx="5.5" ry="7" fill="#8A2A2A" display="none"/>
+    </g>
+    <g id="hat">
+      <use href="#puff" fill="#CFC4B3" stroke="#CFC4B3" stroke-width="5"/>
+      <use href="#puff" fill="#fff"/>
+      <path d="M-22 -140Q-28 -166 -20 -188M0 -138Q3 -168 0 -198M22 -140Q28 -166 20 -188M-52 -108H52" stroke="#E2DACD" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    </g>
+  </g>
+  <circle id="handF" r="12.5" fill="#F8CDAF" stroke="#E3A583" stroke-width="1.5"/>
+  <circle id="handN" r="12.5" fill="#F8CDAF" stroke="#E3A583" stroke-width="1.5"/>
+
+  <g id="basketBack">
+    <g class="steam" fill="#fff"><circle cx="-12" cy="-12" r="7"/><circle cx="8" cy="-16" r="8"/><circle cx="16" cy="-10" r="6"/></g>
+    <ellipse rx="42" ry="10" fill="#F4EDE3" stroke="#2F3550" stroke-width="3"/>
+    <ellipse cx="0" cy="2" rx="35" ry="6.5" fill="#D9CFC2"/>
+  </g>
+  <g id="eggs"></g>
+  <g id="hens"></g>
+  <g id="basketFront">
+    <path d="M-41 10q-13 0 -12 9q1 7 13 5M41 10q13 0 12 9q-1 7 -13 5" fill="none" stroke="#B92B2B" stroke-width="5.5" stroke-linecap="round"/>
+    <path d="M-42 0L-37 40Q-35 48 -25 48H25Q35 48 37 40L42 0Q0 14 -42 0Z" fill="#E23B3B"/>
+    <g fill="#fff"><circle cx="-25" cy="20" r="4.6"/><circle cx="0" cy="26" r="4.6"/><circle cx="25" cy="20" r="4.6"/><circle cx="-13" cy="38" r="4.6"/><circle cx="13" cy="38" r="4.6"/></g>
+    <path d="M-42 0Q0 14 42 0" fill="none" stroke="#2F3550" stroke-width="4" stroke-linecap="round"/>
+  </g>
+  <g id="splats"></g>
+  <g id="fx"></g>
+  </g>
+</svg>
+
+<header class="hud">
+  <div class="lives" id="lives" role="img" aria-label="Целых яиц: 3">
+    <svg viewBox="0 0 22 28" aria-hidden="true"><ellipse cx="11" cy="15" rx="9" ry="12" fill="#EDC49B" stroke="#3A2318" stroke-width="1.6"/></svg>
+    <svg viewBox="0 0 22 28" aria-hidden="true"><ellipse cx="11" cy="15" rx="9" ry="12" fill="#EDC49B" stroke="#3A2318" stroke-width="1.6"/></svg>
+    <svg viewBox="0 0 22 28" aria-hidden="true"><ellipse cx="11" cy="15" rx="9" ry="12" fill="#EDC49B" stroke="#3A2318" stroke-width="1.6"/></svg>
+  </div>
+  <div class="score">
+    <output id="score" aria-label="Счёт">0</output>
+    <small>рекорд <span id="best">0</span></small>
+  </div>
+  <div class="tools">
+    <button class="tool" id="btnSound" type="button" aria-label="Звук" aria-pressed="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 9.5v5h3.5L12 18V6L7.5 9.5H4z" fill="currentColor"/>
+        <path class="wave" d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11"/>
+        <path class="slash" d="M16 9.5l5 5M21 9.5l-5 5"/>
+      </svg>
+    </button>
+    <button class="tool" id="btnFull" type="button" aria-label="На весь экран">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg>
+    </button>
+    <button class="tool" id="btnPause" type="button" aria-label="Пауза">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6.5" y="5" width="4" height="14" rx="1.5"/><rect x="13.5" y="5" width="4" height="14" rx="1.5"/></svg>
+    </button>
+  </div>
+</header>
+
+<div class="pads">
+  <button class="pad" type="button" data-lane="0" aria-label="Слева вверху"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18L18 6M9 6h9v9"/></svg></button>
+  <button class="pad" type="button" data-lane="1" aria-label="Слева внизу"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18L18 6M9 6h9v9"/></svg></button>
+  <button class="pad" type="button" data-lane="2" aria-label="Справа вверху"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18L18 6M9 6h9v9"/></svg></button>
+  <button class="pad" type="button" data-lane="3" aria-label="Справа внизу"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18L18 6M9 6h9v9"/></svg></button>
+</div>
+
+<section class="menu" id="menuStart" aria-labelledby="ttl">
+  <div class="head">
+    <p class="kicker">Малыш-шеф</p>
+    <h1 id="ttl">Яичный <span>переполох</span></h1>
+  </div>
+  <div class="panel">
+    <p>Лови яйца кастрюлькой. Каждое играет ноту мелодии, каждые 10 дают новое блюдо. Три разбитых, и игра окончена.</p>
+    <div class="seg" role="radiogroup" aria-label="Режим">
+      <button type="button" role="radio" id="modeA" aria-checked="true">Игра А</button>
+      <button type="button" role="radio" id="modeB" aria-checked="false">Игра Б</button>
+    </div>
+    <div class="cap" id="modeCap">Темп растёт постепенно</div>
+    <button class="btn" type="button" id="btnPlay">Играть</button>
+    <div class="hint hint-touch">Жми кнопку того угла, откуда катится яйцо.</div>
+    <div class="hint hint-keys"><kbd>Q</kbd> <kbd>A</kbd> <kbd>P</kbd> <kbd>L</kbd> — четыре угла. Стрелки тоже работают.</div>
+  </div>
+</section>
+
+<section class="menu" id="menuOver" aria-labelledby="overNum">
+  <div class="head">
+    <p class="kicker">Три яйца разбиты</p>
+    <h1 class="num" id="overNum">0</h1>
+    <p class="sub"><span id="overWord">яиц в кастрюле</span><br><span id="overDish">Блюд приготовлено: 0</span><br><span id="overBest">Рекорд 0</span></p>
+  </div>
+  <div class="panel">
+    <button class="btn" type="button" id="btnAgain">Ещё раз</button>
+    <button class="btn ghost" type="button" id="btnMenu">Сменить игру</button>
+  </div>
+</section>
+
+<section class="menu" id="menuPause" aria-labelledby="pauseTtl">
+  <div class="head">
+    <p class="kicker" id="pauseKick">Игра А</p>
+    <h1 id="pauseTtl">Пауза</h1>
+  </div>
+  <div class="panel">
+    <button class="btn" type="button" id="btnResume">Продолжить</button>
+    <button class="btn ghost" type="button" id="btnQuit">В меню</button>
+  </div>
+</section>
+
+</div>
+<script>
+(() => {
+'use strict';
+const NS = 'http://www.w3.org/2000/svg';
+const $ = s => document.querySelector(s);
+const svg = $('#stage'), world = $('#world');
+function S(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+
+/* ---------- geometry (stage units, 800 wide, ground at 880) ---------- */
+const CX = 400, GROUND = 880, SLOPE = 0.398, NX = 0.37, NY = 0.929, XS = 80;
+// level 0 = upper plank, 1 = lower plank; bx/by = where the basket rim sits
+const LEVELS = [{ y0: 372, xe: 196, bx: 172, by: 505 }, { y0: 557, xe: 250, bx: 120, by: 708 }];
+const laneSide = l => (l < 2 ? -1 : 1);
+const laneLevel = l => l % 2;
+const MODES = {
+  A: { T0: 3400, Tmin: 1500, kT: 20, I0: 1650, Imin: 560, kI: 11.5, cap: 'Темп растёт постепенно' },
+  B: { T0: 2400, Tmin: 1250, kT: 15, I0: 1050, Imin: 450, kI: 8, cap: 'Быстро с первого яйца' }
+};
+const GRACE = 130, GRAV = 2300;
+
+function eggPos(lane, t, ang) {
+  const L = LEVELS[laneLevel(lane)];
+  const xl = XS + (L.xe - XS) * t, yl = L.y0 + SLOPE * (xl + 10);
+  const r = 6.5 + 16 + 4 * Math.abs(Math.cos(ang));
+  const x = xl + NX * r, y = yl - NY * r;
+  return [laneSide(lane) > 0 ? 800 - x : x, y];
+}
+const rollAngle = (lane, t) => ((LEVELS[laneLevel(lane)].xe - XS) * t / NY) / 18;
+
+/* ---------- the wall clock shows the real time ---------- */
+function setClock() {
+  const d = new Date(), m = d.getMinutes(), h = d.getHours() % 12 + m / 60;
+  $('#clockH').setAttribute('transform', `rotate(${(h * 30).toFixed(1)} 646 150)`);
+  $('#clockM').setAttribute('transform', `rotate(${m * 6} 646 150)`);
+}
+setClock(); setInterval(setClock, 20000);
+
+const hensLayer = $('#hens');
+const HEN_COL = [['#FFFFFF', '#E4DCCF'], ['#D98A4E', '#B96A35'], ['#F6E3C3', '#E0C08F'], ['#DADDE5', '#B6BBC8']];
+const henEls = HEN_COL.map(([body, wing], lane) => {
+  const L = LEVELS[laneLevel(lane)], s = laneSide(lane), xl = 50;
+  const y = L.y0 + SLOPE * (xl + 10) - 5, x = s < 0 ? xl : 800 - xl;
+  const g = S('g', { transform: `translate(${x} ${y}) scale(${s < 0 ? 0.92 : -0.92} .92)` }, hensLayer);
+  S('ellipse', { cx: 0, cy: -3, rx: 46, ry: 11, fill: '#D9B76A' }, g);
+  const b = S('g', { class: 'hen-b' }, g);
+  b.style.animationDelay = (-lane * 0.7) + 's';
+  S('path', { d: 'M-26 -34 Q-62 -58 -50 -86 Q-40 -64 -16 -56 Z', fill: wing }, b);
+  S('ellipse', { cx: -2, cy: -32, rx: 38, ry: 30, fill: body }, b);
+  S('path', { d: 'M38 -50 Q42 -36 34 -22 L16 -42 Z', fill: body }, b);
+  S('circle', { cx: 15, cy: -80, r: 6, fill: '#E23B3B' }, b);
+  S('circle', { cx: 24, cy: -84, r: 7, fill: '#E23B3B' }, b);
+  S('circle', { cx: 33, cy: -79, r: 6, fill: '#E23B3B' }, b);
+  S('circle', { cx: 24, cy: -62, r: 19, fill: body }, b);
+  S('path', { d: 'M41 -67 L57 -61 L41 -55 Z', fill: '#FFC24A', stroke: '#FFC24A', 'stroke-width': 2, 'stroke-linejoin': 'round' }, b);
+  S('ellipse', { cx: 39, cy: -47, rx: 4.5, ry: 7, fill: '#E23B3B' }, b);
+  S('circle', { cx: 29, cy: -65, r: 3.2, fill: '#3A2318' }, b);
+  S('path', { d: 'M-24 -40 Q-2 -52 16 -36 Q4 -14 -20 -20 Z', fill: wing }, b);
+  S('path', { d: 'M-40 -2 l-8 -9 M-22 3 l-4 -11 M24 3 l5 -11 M40 -2 l9 -8', stroke: '#EBD08E', 'stroke-width': 3, 'stroke-linecap': 'round', fill: 'none' }, g);
+  b.addEventListener('animationend', () => b.classList.remove('lay'));
+  return b;
+});
+
+/* ---------- state ---------- */
+let state = 'menu', mode = 'A', muted = false;
+let score = 0, lives = 3, best = 0, pose = 1;
+let eggs = [], spawnIn = 0, lastLane = -1, endTimer = 0;
+let dishes = 0, kick = 0, happy = 0, sad = 0, blinkIn = 2600, blink = 0, clock = 0, last = 0;
+
+const el = {};
+['shadow', 'torso', 'head', 'face', 'hat', 'eyeL', 'eyeR', 'irisL', 'irisR', 'browL', 'browR', 'mSmile', 'mOpen', 'mSad', 'mWorry',
+  'legL', 'legR', 'footL', 'footR', 'armN0', 'armN', 'armN2', 'armF0', 'armF', 'armF2', 'handN', 'handF',
+  'eggs', 'splats', 'fx', 'score', 'best', 'lives'].forEach(id => { el[id] = $('#' + id); });
+el.bBack = $('#basketBack'); el.bFront = $('#basketFront');
+const pads = [...document.querySelectorAll('.pad')];
+
+/* ---------- storage ---------- */
+function loadBest() { try { return +localStorage.getItem('shef-best-' + mode) || 0; } catch (e) { return 0; } }
+function saveBest() { try { localStorage.setItem('shef-best-' + mode, String(best)); } catch (e) {} }
+
+/* ---------- sound ---------- */
+let ac = null, master = null;
+function audio() {
+  try {
+    if (!ac) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      ac = new AC(); master = ac.createGain(); master.gain.value = 0.5; master.connect(ac.destination);
+    }
+    if (ac.state === 'suspended') ac.resume().catch(() => {});
+  } catch (e) { ac = null; }
+}
+function tone(f, dur, type, g, delay, f2) {
+  if (!ac || muted) return;
+  try {
+    const t = ac.currentTime + (delay || 0), o = ac.createOscillator(), v = ac.createGain();
+    o.type = type || 'sine'; o.frequency.setValueAtTime(f, t);
+    if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+    v.gain.setValueAtTime(0.0001, t); v.gain.exponentialRampToValueAtTime(g, t + 0.012); v.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(v); v.connect(master); o.start(t); o.stop(t + dur + 0.04);
+  } catch (e) {}
+}
+function crack() {
+  if (!ac || muted) return;
+  try {
+    const n = ac.sampleRate * 0.2 | 0, buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 2.2);
+    const src = ac.createBufferSource(), f = ac.createBiquadFilter(), v = ac.createGain();
+    src.buffer = buf; f.type = 'lowpass'; f.frequency.value = 1500; v.gain.value = 0.55;
+    src.connect(f); f.connect(v); v.connect(master); src.start();
+  } catch (e) {}
+  tone(170, 0.32, 'sine', 0.4, 0, 55);
+}
+// Each caught egg plays the next note of a tune; a broken egg starts the tune over.
+const TUNES = [
+  ['Коробейники', 'E5 B4 C5 D5 C5 B4 A4 A4 C5 E5 D5 C5 B4 C5 D5 E5 C5 A4 A4 D5 F5 A5 G5 F5 E5 C5 E5 D5 C5 B4 B4 C5 D5 E5 C5 A4 A4'],
+  ['Ода к радости', 'E4 E4 F4 G4 G4 F4 E4 D4 C4 C4 D4 E4 E4 D4 D4 E4 E4 F4 G4 G4 F4 E4 D4 C4 C4 D4 E4 D4 C4 C4 D4 D4 E4 C4 D4 E4 F4 E4 C4 D4 E4 F4 E4 D4 C4 D4 G3 E4 E4 F4 G4 G4 F4 E4 D4 C4 C4 D4 E4 D4 C4 C4'],
+  ['Чижик-пыжик', 'E5 C5 E5 C5 F5 E5 D5 G4 G4 G4 A4 B4 C5 C5 C5'],
+  ['К Элизе', 'E5 D#5 E5 D#5 E5 B4 D5 C5 A4 C4 E4 A4 B4 E4 G#4 B4 C5 E4 E5 D#5 E5 D#5 E5 B4 D5 C5 A4 C4 E4 A4 B4 E4 C5 B4 A4']
+].map(([name, notes]) => ({ name, f: notes.split(' ').map(n => {
+  const m = /^([A-G])(#?)(\d)$/.exec(n), semi = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[m[1]] + (m[2] ? 1 : 0);
+  return 440 * Math.pow(2, (semi + 12 * (+m[3] + 1) - 69) / 12);
+}) }));
+let tune = 0, noteAt = 0;
+function playNote(gold) {
+  const t = TUNES[tune], f = t.f[noteAt];
+  if (noteAt === 0) popTune(t.name);
+  tone(f, 0.5, 'sine', 0.3, 0); tone(f * 2, 0.22, 'sine', 0.09, 0); tone(f * 3, 0.12, 'sine', 0.05, 0);
+  if (gold) { tone(f * 2, 0.12, 'sine', 0.12, 0.08); tone(f * 3, 0.16, 'sine', 0.1, 0.16); tone(f * 4, 0.2, 'sine', 0.07, 0.24); }
+  if (++noteAt >= t.f.length) { noteAt = 0; tune = (tune + 1) % TUNES.length; }
+}
+const plop = () => tone(340, 0.09, 'sine', 0.16, 0, 130);
+const cluck = () => { tone(520, 0.05, 'triangle', 0.05, 0, 760); tone(680, 0.07, 'triangle', 0.045, 0.07, 430); };
+const uhoh = () => { tone(440, 0.17, 'sine', 0.22, 0.18, 415); tone(330, 0.32, 'sine', 0.22, 0.38, 296); };
+const bell = () => { tone(2093, 0.9, 'sine', 0.15, 0); tone(4186, 0.5, 'sine', 0.045, 0); tone(2093, 0.9, 'sine', 0.11, 0.17); };
+// every 10 points a dish is ready: a cloche pops up and the service bell rings
+const DISHES = ['Глазунья готова', 'Омлет готов', 'Блинчики готовы', 'Сырники готовы', 'Шарлотка готова', 'Торт готов'];
+function serve() {
+  const g = S('g', { transform: `translate(${CX} 404)` }, el.fx), a = S('g', { class: 'dish' }, g);
+  S('ellipse', { cx: 0, cy: 26, rx: 52, ry: 9, fill: '#fff', stroke: '#CFC4B3', 'stroke-width': 2 }, a);
+  S('path', { d: 'M-38 24A38 36 0 0 1 38 24Z', fill: '#E9EEF2', stroke: '#AEB9C4', 'stroke-width': 2.5, 'stroke-linejoin': 'round' }, a);
+  S('path', { d: 'M-25 6A27 27 0 0 1 -6 -8', fill: 'none', stroke: '#fff', 'stroke-width': 4, 'stroke-linecap': 'round' }, a);
+  S('circle', { cx: 0, cy: -16, r: 6, fill: '#AEB9C4' }, a);
+  const t = S('text', { x: 0, y: 68, class: 'dishText' }, a);
+  t.textContent = DISHES[(dishes - 1) % DISHES.length];
+  a.addEventListener('animationend', () => g.remove());
+  bell();
+}
+const buzz = ms => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} };
+
+/* ---------- helpers ---------- */
+function plural(n, one, few, many) {
+  const a = n % 10, b = n % 100;
+  return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many;
+}
+function setState(s) { state = s; document.body.dataset.state = s === 'ending' ? 'play' : s; shiftWorld(); }
+function view() {
+  const w = innerWidth || 800, h = innerHeight || 1000;
+  if (w > h && h <= 520) return { top: 190, H: 735 };          // phone held sideways
+  const H = Math.max(1000, Math.min(1500, 800 * h / w));
+  return { top: -(H - 1000) * 0.4, H };
+}
+// Menus push the scene aside (wide screens) or up (phones) so the kid stays in view.
+function shiftWorld() {
+  const w = innerWidth || 800, h = innerHeight || 1000, H = view().H;
+  const sc = Math.min(w / 800, h / H); let x = 0, y = 0;
+  if (w / h >= 1.5) { if (state === 'menu' || state === 'over') x = ((w - 800 * sc) / 2 - 16) / sc; }
+  else if (w / h <= 0.75 && state === 'menu') y = -64 / sc;
+  world.style.transform = `translate(${x.toFixed(0)}px,${y.toFixed(0)}px)`;
+}
+function setPose(l) {
+  pose = l;
+  pads.forEach(p => p.classList.toggle('on', +p.dataset.lane === l));
+}
+function hud() {
+  el.score.textContent = score;
+  el.best.textContent = Math.max(best, score);
+  [...el.lives.children].forEach((c, i) => c.classList.toggle('lost', i >= lives));
+  el.lives.setAttribute('aria-label', 'Целых яиц: ' + lives);
+}
+function pop(x, y, text, gold) {
+  const t = S('text', { x, y, class: 'pop' + (gold ? ' gold' : '') }, el.fx);
+  t.textContent = text;
+  t.addEventListener('animationend', () => t.remove());
+}
+function popTune(name) {
+  const t = S('text', { x: CX, y: 372, class: 'pop tune' }, el.fx);
+  t.textContent = '♪ ' + name;
+  t.addEventListener('animationend', () => t.remove());
+}
+function makeEgg(lane, gold) {
+  const g = S('g', {}, el.eggs);
+  S('ellipse', { rx: 23, ry: 27, fill: gold ? '#FFD23F' : '#fff', opacity: gold ? 0.5 : 0.3 }, g);
+  S('ellipse', { rx: 16, ry: 20, fill: gold ? '#FFC83A' : '#EDC49B', stroke: gold ? '#D9930F' : '#B98452', 'stroke-width': 1.8 }, g);
+  S('ellipse', { cx: -5, cy: -8, rx: 4.5, ry: 6.5, fill: '#fff', opacity: 0.6 }, g);
+  return { lane, gold, t: 0, st: 'roll', el: g, x: 0, y: 0, vx: 0, vy: 0, age: 0, rot: 0 };
+}
+function placeEgg(e, scale) {
+  e.el.setAttribute('transform', `translate(${e.x.toFixed(1)} ${e.y.toFixed(1)}) rotate(${e.rot.toFixed(1)})` + (scale ? ` scale(${scale.toFixed(2)})` : ''));
+}
+function rollEgg(e) {
+  const a = rollAngle(e.lane, e.t), s = laneSide(e.lane);
+  [e.x, e.y] = eggPos(e.lane, e.t, a);
+  e.rot = -s * (a * 180 / Math.PI + 21.7);
+  placeEgg(e);
+}
+function clearEggs() { eggs.forEach(e => e.el.remove()); eggs = []; }
+function demoEggs() {
+  clearEggs();
+  [[0, 0.62, false], [3, 0.4, false], [2, 0.85, true]].forEach(([l, t, g]) => { const e = makeEgg(l, g); e.t = t; rollEgg(e); eggs.push(e); });
+}
+
+/* ---------- game flow ---------- */
+function newGame() {
+  audio();
+  clearEggs(); el.splats.replaceChildren(); el.fx.replaceChildren();
+  score = 0; lives = 3; dishes = 0; tune = 0; noteAt = 0; best = loadBest(); spawnIn = 800; lastLane = -1; happy = sad = 0;
+  hud(); setState('play'); last = 0;
+  tone(523, 0.12, 'triangle', 0.25, 0); tone(659, 0.12, 'triangle', 0.25, 0.1); tone(784, 0.2, 'triangle', 0.25, 0.2);
+}
+function speed() {
+  const m = MODES[mode];
+  return { T: Math.max(m.Tmin, m.T0 - score * m.kT), I: Math.max(m.Imin, m.I0 - score * m.kI) };
+}
+function spawn() {
+  let lane = Math.random() * 4 | 0;
+  if (lane === lastLane && Math.random() < 0.5) lane = (lane + 1 + (Math.random() * 3 | 0)) % 4;
+  lastLane = lane;
+  const e = makeEgg(lane, score >= 10 && Math.random() < 0.07);
+  rollEgg(e); eggs.push(e);
+  const h = henEls[lane]; h.classList.remove('lay'); void h.getBoundingClientRect(); h.classList.add('lay');
+  cluck();
+}
+function catchEgg(e) {
+  e.st = 'in'; e.age = 0; e.x0 = e.x; e.y0 = e.y;
+  const before = score, gain = e.gold ? 3 : 1;
+  score += gain; kick = 1; happy = 420;
+  if (kid.hop === 0) kid.hopV = e.gold ? -440 : -260;
+  const L = LEVELS[laneLevel(e.lane)], bx = CX + laneSide(e.lane) * L.bx;
+  pop(bx, L.by - 26, '+' + gain, e.gold);
+  playNote(e.gold); plop();
+  buzz(8);
+  if (Math.floor(score / 10) > Math.floor(before / 10)) { dishes++; serve(); }
+  if (Math.floor(score / 100) > Math.floor(before / 100) && lives < 3) { lives++; pop(CX, 430, 'яйцо вернулось'); }
+  hud();
+  el.score.classList.remove('bump'); void el.score.offsetWidth; el.score.classList.add('bump');
+}
+function smash(e) {
+  const g = S('g', { class: 'splat', transform: `translate(${e.x.toFixed(0)} ${GROUND + 4})` }, el.splats);
+  S('path', { d: 'M-30 0Q-34 -8 -18 -9Q-8 -14 4 -10Q22 -14 30 -4Q36 4 20 6Q0 10 -20 6Q-32 6 -30 0Z', fill: '#FFFDF6' }, g);
+  S('ellipse', { cx: 2, cy: -3, rx: 10, ry: 6, fill: e.gold ? '#FFD76A' : '#FFB52E' }, g);
+  S('path', { d: 'M-48 4a11 11 0 0 1 22 0Z', fill: '#EDC49B', transform: 'rotate(-18 -37 4)' }, g);
+  S('path', { d: 'M30 5a10 10 0 0 1 20 0Z', fill: '#EDC49B', transform: 'rotate(14 40 5)' }, g);
+  g.addEventListener('animationend', () => g.remove());
+  e.el.remove(); e.st = 'gone';
+  lives--; sad = 950; spawnIn += 600; noteAt = 0;
+  crack(); uhoh(); buzz(70); hud();
+  if (!matchMedia('(prefers-reduced-motion:reduce)').matches) { world.classList.remove('shake'); void world.getBoundingClientRect(); world.classList.add('shake'); }
+  if (lives <= 0) { setState('ending'); endTimer = 950; }
+}
+function gameOver() {
+  const record = score > best;
+  if (record) { best = score; saveBest(); }
+  $('#overNum').textContent = score;
+  $('#overWord').textContent = plural(score, 'яйцо', 'яйца', 'яиц') + ' в кастрюле';
+  $('#overDish').textContent = 'Блюд приготовлено: ' + dishes;
+  $('#overBest').innerHTML = record && score > 0 ? '<b>Новый рекорд</b>' : 'Рекорд ' + best;
+  setState('over');
+  tone(392, 0.2, 'triangle', 0.25, 0); tone(330, 0.2, 'triangle', 0.25, 0.18); tone(262, 0.4, 'triangle', 0.25, 0.36);
+  $('#btnAgain').focus({ preventScroll: true });
+}
+function pause() {
+  if (state !== 'play') return;
+  $('#pauseKick').textContent = 'Игра ' + (mode === 'A' ? 'А' : 'Б') + ' · счёт ' + score;
+  setState('pause'); $('#btnResume').focus({ preventScroll: true });
+}
+function resume() { audio(); last = 0; setState('play'); }
+function toMenu() { clearEggs(); el.splats.replaceChildren(); setState('menu'); demoEggs(); setPose(1); }
+function setMode(m) {
+  mode = m;
+  $('#modeA').setAttribute('aria-checked', m === 'A'); $('#modeB').setAttribute('aria-checked', m === 'B');
+  $('#modeCap').textContent = MODES[m].cap;
+}
+
+/* ---------- frame ---------- */
+/* Малыш-шеф is a small puppet: springs for the reach, feet that step, a hat that wobbles. */
+const LEG = 70, K = 1.1;
+const kid = {
+  sx: -1, sv: 0, lv: 0, lvv: 0, hop: 0, hopV: 0, land: 0, lookX: 0, lookY: 0, hat: 0, hatV: 0,
+  hx: CX + 50, hy: GROUND - 100, side: -1,
+  feet: [{ x: CX - 48, from: 0, to: 0, t: 1, delay: 0, lift: 0 }, { x: CX + 8, from: 0, to: 0, t: 1, delay: 0, lift: 0 }]
+};
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function spring(o, x, v, target, w, z, dt) {
+  let n = Math.max(1, Math.ceil(dt / 0.008)); const h = dt / n;
+  while (n--) { o[v] += (-w * w * (o[x] - target) - 2 * z * w * o[v]) * h; o[x] += o[v] * h; }
+}
+function limb(x0, y0, x1, y1, L0, dir, k) {
+  const dx = x1 - x0, dy = y1 - y0, d = Math.hypot(dx, dy) || 1, slack = Math.max(0, L0 - d) * k * dir;
+  const mx = (x0 + x1) / 2 - dy / d * slack, my = (y0 + y1) / 2 + dx / d * slack;
+  return `M${x0.toFixed(1)} ${y0.toFixed(1)}Q${mx.toFixed(1)} ${my.toFixed(1)} ${x1.toFixed(1)} ${y1.toFixed(1)}`;
+}
+function drawKid(dt) {
+  const s = dt / 1000, side = laneSide(pose), up = laneLevel(pose) === 0 ? 1 : 0;
+  spring(kid, 'sx', 'sv', side, 30, 0.6, s); spring(kid, 'lv', 'lvv', up, 30, 0.62, s);
+  kick = Math.max(0, kick - dt / 150); kid.land = Math.max(0, kid.land - dt / 170);
+  happy = Math.max(0, happy - dt); sad = Math.max(0, sad - dt);
+
+  // feet: a quick two-beat step when he changes sides
+  if (side !== kid.side) {
+    kid.side = side; const c = CX + side * 20;
+    kid.feet.forEach((f, i) => { f.from = f.x; f.to = c + (i ? 30 : -30); f.t = 0; f.delay = (side < 0 ? i : 1 - i) * 70; });
+  }
+  let lift = 0;
+  for (const f of kid.feet) {
+    f.lift = 0;
+    if (f.t < 1) {
+      if (f.delay > 0) f.delay -= dt;
+      else { f.t = Math.min(1, f.t + dt / 130); const e = f.t * f.t * (3 - 2 * f.t); f.x = f.from + (f.to - f.from) * e; f.lift = Math.sin(Math.PI * f.t) * 13; }
+    }
+    lift = Math.max(lift, f.lift);
+  }
+  // a little jump of joy on every catch
+  if (kid.hop < 0 || kid.hopV < 0) {
+    kid.hopV += 2600 * s; kid.hop += kid.hopV * s;
+    if (kid.hop >= 0) { kid.hop = 0; kid.hopV = 0; kid.land = 1; }
+  }
+
+  // torso: lean into the reach, stretch up, crouch down, breathe
+  const lv = clamp(kid.lv, -0.2, 1.2), sx = kid.sx, sign = sx >= 0 ? 1 : -1;
+  const bodyX = (kid.feet[0].x + kid.feet[1].x) / 2 + sx * 6;
+  const sy = 1 + lv * 0.04 - (1 - lv) * 0.03 + Math.sin(clock / 900) * 0.012 - kick * 0.05 - kid.land * 0.07, sxk = 1 / Math.sqrt(sy);
+  const hipY = GROUND - LEG * K + (1 - lv) * 7 - lv * 4 + kick * 5 + kid.land * 6 + kid.hop - lift * 0.25;
+  const lean = sx * (5 + 3 * lv) + clamp(kid.sv * 0.22, -5, 5);
+  const ca = Math.cos(lean * Math.PI / 180), sa = Math.sin(lean * Math.PI / 180);
+  const tw = (x, y) => { const X = x * sxk * K, Y = y * sy * K; return [bodyX + X * ca - Y * sa, hipY + X * sa + Y * ca]; };
+  const torsoT = `translate(${bodyX.toFixed(1)} ${hipY.toFixed(1)}) rotate(${lean.toFixed(2)}) scale(${(K * sxk).toFixed(3)} ${(K * sy).toFixed(3)})`;
+  el.torso.setAttribute('transform', torsoT);
+  el.shadow.setAttribute('cx', bodyX.toFixed(1)); el.shadow.setAttribute('rx', (88 * (1 + kid.hop / 110)).toFixed(1));
+
+  // eyes follow the egg that will fall first
+  let lead = null;
+  if (state === 'play') for (const e of eggs) {
+    if (e.st !== 'roll' && e.st !== 'drop') continue;
+    if (!lead || e.t + (e.st === 'drop' ? 1 : 0) > lead.t + (lead.st === 'drop' ? 1 : 0)) lead = e;
+  }
+  const hp = tw(0, -170); let tx = sx * 0.4, ty = 0.1 - lv * 0.5;
+  if (sad > 0) { tx = sx * 0.3; ty = 1; }
+  else if (lead) { const dx = lead.x - hp[0], dy = lead.y - hp[1], d = Math.hypot(dx, dy) || 1; tx = dx / d; ty = dy / d; }
+  else if (state === 'menu') { tx = 0; ty = 0; }
+  const kl = 1 - Math.exp(-dt / 90); kid.lookX += (tx - kid.lookX) * kl; kid.lookY += (ty - kid.lookY) * kl;
+  const joy = sad <= 0 && happy > 0;
+  const worried = !joy && sad <= 0 && !!lead && lead.st === 'roll' && lead.t > 0.72 && lead.lane !== pose;
+
+  el.head.setAttribute('transform', torsoT + ` translate(0 ${(-104 + Math.sin(clock / 900 + 1) * 1.5).toFixed(1)}) rotate(${(-lean * 0.6 + kid.lookX * 5 - (sad > 0 ? sign * 6 : 0)).toFixed(2)})`);
+  el.face.setAttribute('transform', `translate(${(kid.lookX * 4).toFixed(1)} ${(kid.lookY * 2.5).toFixed(1)})`);
+  blinkIn -= dt;
+  if (blinkIn <= 0) { blink = 130; blinkIn = 2200 + Math.random() * 3200; }
+  blink = Math.max(0, blink - dt);
+  const open = blink > 0 ? 0.1 : worried ? 1.12 : 1, iris = `translate(${(kid.lookX * 3).toFixed(1)} ${(kid.lookY * 2.6).toFixed(1)})`;
+  [el.eyeL, el.eyeR].forEach((g, i) => {
+    g.setAttribute('transform', `translate(${i ? 24 : -24} -62) scale(1 ${open})`);
+    g.firstElementChild.setAttribute('display', joy ? 'none' : 'inline');
+    g.lastElementChild.setAttribute('display', joy ? 'inline' : 'none');
+  });
+  el.irisL.setAttribute('transform', iris); el.irisR.setAttribute('transform', iris);
+  const br = sad > 0 ? 16 : worried ? 11 : joy ? -4 : 0, bry = worried ? -4 : joy ? -3 : 0;
+  el.browL.setAttribute('transform', `translate(0 ${bry}) rotate(${-br} -25 -86)`);
+  el.browR.setAttribute('transform', `translate(0 ${bry}) rotate(${br} 25 -86)`);
+  el.mSad.setAttribute('display', sad > 0 ? 'inline' : 'none');
+  el.mOpen.setAttribute('display', joy ? 'inline' : 'none');
+  el.mWorry.setAttribute('display', worried ? 'inline' : 'none');
+  el.mSmile.setAttribute('display', sad <= 0 && !joy && !worried ? 'inline' : 'none');
+
+  // the chef's hat lags behind every move and wobbles back
+  spring(kid, 'hat', 'hatV', clamp(-kid.sv * 0.9, -14, 14) + clamp(kid.hopV * 0.012, -6, 6), 16, 0.3, s);
+  el.hat.setAttribute('transform', `rotate(${kid.hat.toFixed(2)} 0 -108)`);
+
+  // legs and shoes
+  kid.feet.forEach((f, i) => {
+    const h = tw(i ? 22 : -22, 6), fy = GROUND - 8 - f.lift + kid.hop;
+    (i ? el.legR : el.legL).setAttribute('d', limb(h[0], h[1], f.x, fy - 6, (LEG + 2) * K, i ? -1 : 1, 0.6));
+    (i ? el.footR : el.footL).setAttribute('transform', `translate(${(f.x + (i ? 4 : -4)).toFixed(1)} ${fy.toFixed(1)}) scale(${K})`);
+  });
+
+  // pot and arms; after a miss the free hand goes to his cheek
+  const reach = LEVELS[1].bx + (LEVELS[0].bx - LEVELS[1].bx) * lv;
+  const bx = CX + sx * reach, by = LEVELS[1].by + (LEVELS[0].by - LEVELS[1].by) * lv + kick * 7;
+  const sh = tw(sign * 42, -92), nx = bx - sign * 14, ny = by + 50, dN = limb(sh[0], sh[1], nx, ny, 165, sign, 0.45);
+  el.armN0.setAttribute('d', dN); el.armN.setAttribute('d', dN); el.armN2.setAttribute('d', dN);
+  el.handN.setAttribute('cx', nx.toFixed(1)); el.handN.setAttribute('cy', ny.toFixed(1));
+  const fs = tw(-sign * 42, -92);
+  const ft = sad > 0 ? tw(-sign * 50, -140) : joy ? tw(-sign * 88, -150) : tw(-sign * (64 + lv * 8), -34 + lv * 10 + Math.sin(clock / 520) * 3);
+  const kh = 1 - Math.exp(-dt / 70); kid.hx += (ft[0] - kid.hx) * kh; kid.hy += (ft[1] - kid.hy) * kh;
+  const dF = limb(fs[0], fs[1], kid.hx, kid.hy, 165, sign, 0.25);
+  el.armF0.setAttribute('d', dF); el.armF.setAttribute('d', dF); el.armF2.setAttribute('d', dF);
+  el.handF.setAttribute('cx', kid.hx.toFixed(1)); el.handF.setAttribute('cy', kid.hy.toFixed(1));
+  const bt = `translate(${bx.toFixed(1)} ${by.toFixed(1)}) scale(${(1 + kick * 0.06).toFixed(3)} ${(1 - kick * 0.1).toFixed(3)})`;
+  el.bBack.setAttribute('transform', bt); el.bFront.setAttribute('transform', bt);
+}
+function stepEggs(dt) {
+  const { T, I } = speed();
+  spawnIn -= dt;
+  if (spawnIn <= 0) { spawn(); spawnIn = I * (0.8 + Math.random() * 0.4); }
+  for (const e of eggs) {
+    if (e.st === 'roll') {
+      e.t += dt / T;
+      if (e.t >= 1) {
+        e.t = 1; rollEgg(e);
+        if (pose === e.lane) catchEgg(e);
+        else { e.st = 'drop'; e.age = 0; e.vx = -laneSide(e.lane) * 6; e.vy = 70; }
+      } else rollEgg(e);
+    } else if (e.st === 'drop') {
+      e.age += dt;
+      if (e.age < GRACE && pose === e.lane) { catchEgg(e); continue; }
+      e.vy += GRAV * dt / 1000; e.x += e.vx * dt / 1000; e.y += e.vy * dt / 1000; e.rot -= laneSide(e.lane) * dt * 0.5;
+      if (e.y >= GROUND - 14) smash(e); else placeEgg(e);
+    }
+  }
+}
+function stepCaught(dt) {
+  for (const e of eggs) {
+    if (e.st !== 'in') continue;
+    e.age += dt;
+    const k = Math.min(1, e.age / 110), L = LEVELS[laneLevel(e.lane)];
+    e.x = e.x0 + (CX + laneSide(e.lane) * L.bx - e.x0) * k; e.y = e.y0 + (L.by + 18 - e.y0) * k;
+    if (k >= 1) { e.el.remove(); e.st = 'gone'; } else placeEgg(e, 1 - k * 0.25);
+  }
+  if (eggs.some(e => e.st === 'gone')) eggs = eggs.filter(e => e.st !== 'gone');
+}
+function frame(now) {
+  const dt = last ? Math.min(50, now - last) : 16; last = now; clock += dt;
+  if (state === 'play') { stepEggs(dt); stepCaught(dt); }
+  else if (state === 'ending') { stepCaught(dt); endTimer -= dt; if (endTimer <= 0) gameOver(); }
+  drawKid(dt);
+  requestAnimationFrame(frame);
+}
+
+/* ---------- input ---------- */
+function fit() {
+  const v = view();
+  svg.setAttribute('viewBox', `0 ${v.top.toFixed(0)} 800 ${v.H.toFixed(0)}`);
+  shiftWorld();
+}
+addEventListener('resize', fit); addEventListener('orientationchange', () => setTimeout(fit, 250)); fit();
+
+svg.addEventListener('pointerdown', ev => {
+  if (state !== 'play') return;
+  ev.preventDefault();
+  const m = svg.getScreenCTM(); if (!m) return;
+  const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
+  const p = pt.matrixTransform(m.inverse());
+  setPose((p.x < CX ? 0 : 2) + (p.y < 610 ? 0 : 1));
+});
+pads.forEach(p => p.addEventListener('pointerdown', ev => { ev.preventDefault(); ev.stopPropagation(); if (state === 'play') setPose(+p.dataset.lane); }));
+addEventListener('contextmenu', ev => ev.preventDefault());
+const KEYS = { KeyQ: 0, KeyA: 1, KeyP: 2, KeyL: 3, Numpad7: 0, Numpad1: 1, Numpad9: 2, Numpad3: 3 };
+addEventListener('keydown', ev => {
+  if (ev.repeat) return;
+  if (state === 'play') {
+    if (ev.code in KEYS) setPose(KEYS[ev.code]);
+    else if (ev.code === 'ArrowLeft') setPose(pose % 2);
+    else if (ev.code === 'ArrowRight') setPose(2 + pose % 2);
+    else if (ev.code === 'ArrowUp') setPose(pose - pose % 2);
+    else if (ev.code === 'ArrowDown') setPose(pose - pose % 2 + 1);
+    else if (ev.code === 'Escape' || ev.code === 'Space') pause();
+    else return;
+    ev.preventDefault();
+  } else if ((ev.code === 'Enter' || ev.code === 'Space') && document.activeElement.tagName !== 'BUTTON') {
+    ev.preventDefault();
+    if (state === 'menu' || state === 'over') newGame(); else if (state === 'pause') resume();
+  }
+});
+$('#btnPlay').addEventListener('click', newGame);
+$('#btnAgain').addEventListener('click', newGame);
+$('#btnMenu').addEventListener('click', toMenu);
+$('#btnQuit').addEventListener('click', toMenu);
+$('#btnResume').addEventListener('click', resume);
+$('#btnPause').addEventListener('click', pause);
+$('#modeA').addEventListener('click', () => setMode('A'));
+$('#modeB').addEventListener('click', () => setMode('B'));
+$('#btnSound').addEventListener('click', () => {
+  muted = !muted; if (!muted) audio();
+  $('#btnSound').classList.toggle('off', muted); $('#btnSound').setAttribute('aria-pressed', String(!muted));
+});
+(() => {
+  const b = $('#btnFull'), d = document, r = d.documentElement;
+  const req = r.requestFullscreen || r.webkitRequestFullscreen, exit = d.exitFullscreen || d.webkitExitFullscreen;
+  if (!req || !(d.fullscreenEnabled || d.webkitFullscreenEnabled)) { b.hidden = true; return; }
+  b.addEventListener('click', () => {
+    try {
+      const p = (d.fullscreenElement || d.webkitFullscreenElement) ? exit.call(d) : req.call(r);
+      if (p && p.catch) p.catch(() => {});
+    } catch (e) {}
+  });
+})();
+document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
+
+/* ---------- boot (keeps a running game across a republish) ---------- */
+const hot = window.claude && window.claude.hot;
+if (hot && hot.snapshot) hot.snapshot(() => ({ mode, muted, score, lives, running: state === 'play' || state === 'pause' }));
+function boot(data) {
+  data = data || {};
+  setMode(data.mode === 'B' ? 'B' : 'A');
+  if (data.muted) { muted = true; $('#btnSound').classList.add('off'); $('#btnSound').setAttribute('aria-pressed', 'false'); }
+  best = loadBest(); setPose(1);
+  if (data.running && data.lives > 0) {
+    score = data.score | 0; lives = data.lives | 0; spawnIn = 900; hud();
+    $('#pauseKick').textContent = 'Игра ' + (mode === 'A' ? 'А' : 'Б') + ' · счёт ' + score;
+    setState('pause');
+  } else { hud(); demoEggs(); }
+  requestAnimationFrame(frame);
+}
+if (hot && hot.ready) hot.ready(boot); else boot(hot && hot.data);
+})();
+</script>
+</body>
+</html>
