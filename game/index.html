@@ -41,6 +41,8 @@ canvas#gl{position:fixed;inset:0;width:100%;height:100%;z-index:1;display:block}
 #right{display:flex;flex-direction:column;gap:6px;align-items:flex-end}
 #nextBox{padding:4px 6px;text-align:center}
 #next{width:74px;height:66px;display:block}
+#mapBox{padding:4px 6px;text-align:center}
+#map{width:75px;height:75px;display:block;border-radius:6px}
 #tools{display:flex;gap:6px;pointer-events:auto}
 .tool{width:38px;height:38px;border-radius:12px;border:2px solid #ffffff44;background:#0b022499;color:#fff;
   font:400 17px var(--display);display:grid;place-items:center;padding:0}
@@ -110,6 +112,7 @@ h2{margin:0;font-size:34px;font-weight:400;color:var(--yellow);text-shadow:0 0 1
       <button class="tool" id="tPause" aria-label="Пауза">Ⅱ</button>
     </div>
     <div class="stat" id="nextBox"><small>ДАЛЬШЕ</small><canvas id="next" width="148" height="132"></canvas></div>
+    <div class="stat" id="mapBox"><small>ВИД СВЕРХУ</small><canvas id="map" width="150" height="150"></canvas></div>
   </div>
 </div>
 
@@ -179,8 +182,8 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
 const scene=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(48,1,0.1,400);
 const camBase=new THREE.Vector3();
-const CAM_DIR=new THREE.Vector3(0,0.62,1).normalize();
-const LOOK=new THREE.Vector3(0,H*0.42,0);
+const CAM_DIR=new THREE.Vector3(0,1.3,1).normalize();
+const LOOK=new THREE.Vector3(0,H*0.36,.4);
 
 function resize(){
   const w=window.innerWidth,h=window.innerHeight;
@@ -188,7 +191,7 @@ function resize(){
   camera.aspect=w/h;
   const v=THREE.MathUtils.degToRad(camera.fov)/2;
   const hf=Math.atan(Math.tan(v)*camera.aspect);
-  const dist=Math.max(4.6/Math.tan(hf),8.6/Math.tan(v));
+  const dist=Math.max(4.7/Math.tan(hf),7.4/Math.tan(v));
   camBase.copy(CAM_DIR).multiplyScalar(dist).add(LOOK);
   camera.position.copy(camBase);camera.lookAt(LOOK);
   camera.updateProjectionMatrix();
@@ -272,18 +275,26 @@ for(let y=0;y<H;y++){
 }
 
 // кубики
-const boxGeo=new THREE.BoxGeometry(.9,.9,.9);
-const edgeGeo=new THREE.EdgesGeometry(new THREE.BoxGeometry(.92,.92,.92));
-const cubeMats=COLORS.map(c=>new THREE.MeshStandardMaterial({color:c,emissive:c,emissiveIntensity:.32,roughness:.3,metalness:.15}));
-const edgeMats=COLORS.map(c=>new THREE.LineBasicMaterial({color:new THREE.Color(c).lerp(new THREE.Color(0xffffff),.65)}));
-function makeCube(ci){
-  const m=new THREE.Mesh(boxGeo,cubeMats[ci]);
-  m.add(new THREE.LineSegments(edgeGeo,edgeMats[ci]));
-  return m;
+// «надутые» кубики: скруглённая геометрия и глянец
+function puffGeometry(size,r){
+  const g=new THREE.BoxGeometry(size,size,size,7,7,7),p=g.attributes.position,n=g.attributes.normal,h=size/2-r,v=new THREE.Vector3(),q=new THREE.Vector3();
+  for(let i=0;i<p.count;i++){
+    v.fromBufferAttribute(p,i);q.set(clamp(v.x,-h,h),clamp(v.y,-h,h),clamp(v.z,-h,h));
+    v.sub(q).normalize();n.setXYZ(i,v.x,v.y,v.z);q.addScaledVector(v,r);p.setXYZ(i,q.x,q.y,q.z);
+  }
+  return g;
 }
+const boxGeo=puffGeometry(.98,.4);
+const edgeGeo=new THREE.EdgesGeometry(new THREE.BoxGeometry(.94,.94,.94));
+const cubeMats=COLORS.map(c=>new THREE.MeshPhongMaterial({color:c,emissive:c,emissiveIntensity:.1,specular:0x999999,shininess:9}));
+function makeCube(ci){return new THREE.Mesh(boxGeo,cubeMats[ci]);}
+const layerColor=y=>y%COLORS.length;
 const pieceGroup=new THREE.Group(), pieceSpin=new THREE.Group();pieceGroup.add(pieceSpin);world.add(pieceGroup);
 const ghostGroup=new THREE.Group();world.add(ghostGroup);
-const ghostFill=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.14,depthWrite:false});
+const ghostFill=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.35,depthWrite:false});
+const beamMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.13,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
+const beamGeo=new THREE.BoxGeometry(.86,1,.86);
+const beamGroup=new THREE.Group();world.add(beamGroup);
 const ghostEdge=new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:.75});
 
 // частицы
@@ -419,16 +430,16 @@ function pieceTarget(){
 }
 function clearGroup(g){while(g.children.length)g.remove(g.children[0]);}
 function rebuildPiece(){
-  clearGroup(pieceSpin);clearGroup(ghostGroup);
-  if(!cur)return;
+  clearGroup(pieceSpin);clearGroup(ghostGroup);clearGroup(beamGroup);
+  if(!cur){drawMap();return;}
   const s=sizeOf(cur.cells);
   cur.cells.forEach(c=>{
     const m=makeCube(cur.color);m.position.set(c[0]-(s[0]-1)/2,c[1]-(s[1]-1)/2,c[2]-(s[2]-1)/2);
-    const gl=new THREE.Sprite(new THREE.SpriteMaterial({map:GLOW,color:COLORS[cur.color],transparent:true,opacity:.45,blending:THREE.AdditiveBlending,depthWrite:false}));
+    const gl=new THREE.Sprite(new THREE.SpriteMaterial({map:GLOW,color:COLORS[cur.color],transparent:true,opacity:.2,blending:THREE.AdditiveBlending,depthWrite:false}));
     gl.scale.set(2.6,2.6,1);m.add(gl);pieceSpin.add(m);
-    const g=new THREE.Mesh(boxGeo,ghostFill);g.add(new THREE.LineSegments(edgeGeo,ghostEdge));g.userData.c=c;ghostGroup.add(g);
+    const g=new THREE.Mesh(boxGeo,ghostFill);g.add(new THREE.LineSegments(edgeGeo,ghostEdge));g.renderOrder=2;g.userData.c=c;ghostGroup.add(g);
   });
-  ghostEdge.color.setHex(COLORS[cur.color]);ghostFill.color.setHex(COLORS[cur.color]);
+  ghostEdge.color.setHex(0xffffff);ghostFill.color.setHex(COLORS[cur.color]);beamMat.color.setHex(COLORS[cur.color]);
   updateGhost();
 }
 function dropY(){let y=cur.y;while(!collides(cur.cells,cur.x,y-1,cur.z))y--;return y;}
@@ -436,6 +447,26 @@ function updateGhost(){
   if(!cur)return;const gy=dropY();
   ghostGroup.visible=gy!==cur.y;
   ghostGroup.children.forEach(g=>{const c=g.userData.c;g.position.set(cx(cur.x+c[0]),cy(gy+c[1]),cz(cur.z+c[2]));});
+  // лучи от фигуры до места посадки
+  clearGroup(beamGroup);
+  const cols={};cur.cells.forEach(c=>{const k=c[0]+','+c[2];if(!(k in cols)||c[1]<cols[k][1])cols[k]=c;});
+  for(const k in cols){const c=cols[k],lo=gy+c[1]+1,hi=cur.y+c[1];if(hi<=lo)continue;
+    const b=new THREE.Mesh(beamGeo,beamMat);b.scale.y=hi-lo;b.position.set(cx(cur.x+c[0]),(lo+hi)/2,cz(cur.z+c[2]));beamGroup.add(b);}
+  drawMap();
+}
+// мини-карта: вид сверху с высотой столбиков и местом посадки
+function drawMap(){
+  const c=$('map'),g=c.getContext('2d'),s=c.width/W;g.clearRect(0,0,c.width,c.height);
+  g.font='400 16px system-ui,sans-serif';g.textAlign='center';g.textBaseline='middle';
+  for(let z=0;z<D;z++)for(let x=0;x<W;x++){
+    let h=0;for(let y=H-1;y>=0;y--)if(grid[y][z][x]){h=y+1;break;}
+    g.fillStyle=h?CSS[layerColor(h-1)]:'rgba(255,255,255,.08)';g.globalAlpha=h?.85:1;
+    g.fillRect(x*s+2,z*s+2,s-4,s-4);g.globalAlpha=1;
+    if(h){g.fillStyle='#0b0224';g.fillText(h,x*s+s/2,z*s+s/2+1);}
+  }
+  if(!cur)return;
+  g.strokeStyle='#fff';g.lineWidth=4;
+  cur.cells.forEach(k=>g.strokeRect((cur.x+k[0])*s+2,(cur.z+k[2])*s+2,s-4,s-4));
 }
 function move(dx,dz){
   if(state!=='play'||!cur)return false;
@@ -493,7 +524,7 @@ function lock(){
     const x=cur.x+c[0],y=cur.y+c[1],z=cur.z+c[2];
     if(y>=H){over=true;return;}
     grid[y][z][x]=col+1;
-    const m=makeCube(col);m.position.set(cx(x),cy(y),cz(z));m.userData.ty=cy(y);m.userData.pulse=1;world.add(m);cubes[y][z][x]=m;
+    const m=makeCube(layerColor(y));m.position.set(cx(x),cy(y),cz(z));m.userData.ty=cy(y);m.userData.pulse=1;world.add(m);cubes[y][z][x]=m;
     burst(cx(x),y+.1,cz(z),COLORS[col],7,2.6,.5);
   });
   const p=pieceTarget();ring(p.x,cur.y+.05,p.z,COLORS[col],6);
@@ -511,11 +542,11 @@ function clearLayers(){
   full.forEach(y=>{
     layerFlash(y);
     for(let z=0;z<D;z++)for(let x=0;x<W;x++){
-      const m=cubes[y][z][x];burst(cx(x),cy(y),cz(z),COLORS[grid[y][z][x]-1],9,7,1.1);world.remove(m);
+      const m=cubes[y][z][x];burst(cx(x),cy(y),cz(z),COLORS[layerColor(y)],9,7,1.1);world.remove(m);
     }
   });
   for(let i=full.length-1;i>=0;i--){grid.splice(full[i],1);cubes.splice(full[i],1);grid.push(emptyLayer());cubes.push(emptyCubes());}
-  for(let y=0;y<H;y++)for(let z=0;z<D;z++)for(let x=0;x<W;x++){const m=cubes[y][z][x];if(m)m.userData.ty=cy(y);}
+  for(let y=0;y<H;y++)for(let z=0;z<D;z++)for(let x=0;x<W;x++){const m=cubes[y][z][x];if(m){m.userData.ty=cy(y);m.material=cubeMats[layerColor(y)];}}
   const n=full.length,gain=[0,100,300,600,1000,1500,2100][Math.min(n,6)]*level*combo;
   score+=gain;layers+=n;
   const names=['','СЛОЙ!','ДУБЛЬ!','ТРОЙНОЙ!','МЕГА-БЛИН!'];
@@ -544,11 +575,12 @@ function gameOver(){
   setTimeout(()=>{$('oOver').hidden=false;},1500);
 }
 function updateMeters(){
+  drawMap();
   for(let y=0;y<H;y++){
     let n=0;grid[y].forEach(r=>r.forEach(v=>{if(v)n++}));
     const m=meters[y];m.visible=n>0;if(!n)continue;
     const k=n/(W*D);m.scale.z=k*D;m.position.z=D/2-k*D/2;
-    m.material.color.setHSL(.33-k*.38+(k>.8?1:0),1,.55);
+    m.material.color.setHex(COLORS[layerColor(y)]);
   }
 }
 // ---------- HUD ----------
@@ -581,7 +613,7 @@ function drawNext(){
 
 // ---------- управление наклоном ----------
 let sensors=false,needCal=true,beta0=0,gamma0=0,tiltX=0,tiltZ=0,tX=0,tZ=0,lastToss=0;
-const DEAD=8,TOSS=11;
+const DEAD=7,TOSS=11;
 const grav={x:0,y:0,z:0};let gravInit=false;
 function onOri(e){
   if(e.beta==null||e.gamma==null)return;
@@ -591,7 +623,7 @@ function onOri(e){
   if(ang===90){const t=b;b=-g;g=t;}else if(ang===-90||ang===270){const t=b;b=g;g=-t;}
   if(needCal){beta0=b;gamma0=g;needCal=false;}
   const rx=clamp(g-gamma0,-45,45),rz=clamp(b-beta0,-45,45);
-  tiltX+=(rx-tiltX)*.4;tiltZ+=(rz-tiltZ)*.4;
+  tiltX+=(rx-tiltX)*.16;tiltZ+=(rz-tiltZ)*.16;
 }
 function onMotion(e){
   const now=performance.now();let mag=0;
@@ -622,9 +654,10 @@ async function enableSensors(){
 function tiltStep(dt){
   $('dot').style.transform='translate('+clamp(tiltX,-30,30)*.7+'px,'+clamp(tiltZ,-30,30)*.7+'px)';
   if(!sensors||state!=='play'||!cur)return;
-  const rate=v=>.34-clamp((Math.abs(v)-DEAD)/24,0,1)*.25;
-  if(Math.abs(tiltX)>DEAD){tX-=dt;if(tX<=0){move(Math.sign(tiltX),0);tX=rate(tiltX);}}else tX=0;
-  if(Math.abs(tiltZ)>DEAD){tZ-=dt;if(tZ<=0){move(0,Math.sign(tiltZ));tZ=rate(tiltZ);}}else tZ=0;
+  // скорость скольжения плавно растёт с наклоном: от ~0.5 до ~4 клеток в секунду
+  const speed=v=>.5+Math.pow(clamp((Math.abs(v)-DEAD)/28,0,1),1.4)*3.5;
+  if(Math.abs(tiltX)>DEAD){if(tX===0)tX=.5;tX+=speed(tiltX)*dt;if(tX>=1){move(Math.sign(tiltX),0);tX-=1;if(tX<=0)tX=.001;}}else tX=0;
+  if(Math.abs(tiltZ)>DEAD){if(tZ===0)tZ=.5;tZ+=speed(tiltZ)*dt;if(tZ>=1){move(0,Math.sign(tiltZ));tZ-=1;if(tZ<=0)tZ=.001;}}else tZ=0;
 }
 
 // ---------- касания и клавиши ----------
@@ -680,11 +713,11 @@ function frame(now){
 
   // фигура: плавное движение, вращение, подскок
   if(cur){
-    pieceGroup.position.lerp(pieceTarget(),1-Math.exp(-dt*20));
+    pieceGroup.position.lerp(pieceTarget(),1-Math.exp(-dt*9));
     pieceSpin.quaternion.slerp(_tq.identity(),1-Math.exp(-dt*13));
     const s=pieceGroup.scale.x+(1-pieceGroup.scale.x)*(1-Math.exp(-dt*12));pieceGroup.scale.setScalar(s);
     if(hopT>0){hopT=Math.max(0,hopT-dt/.42);pieceSpin.position.y=Math.sin(Math.PI*(1-hopT))*1.7;}else pieceSpin.position.y=0;
-    ghostFill.opacity=.12+Math.sin(time*8)*.06;
+    ghostFill.opacity=.38+Math.sin(time*7)*.14;pieceSpin.children.forEach((m,i)=>m.scale.setScalar(1+Math.sin(time*5+i)*.045));
     if(Math.random()<.5){const c=cur.cells[Math.floor(Math.random()*cur.cells.length)],p=pieceGroup.position,sz=sizeOf(cur.cells);
       spark(p.x+c[0]-(sz[0]-1)/2+rnd(-.4,.4),p.y+c[1]-(sz[1]-1)/2+.5,p.z+c[2]-(sz[2]-1)/2+rnd(-.4,.4),0,rnd(.5,2),0,COLORS[cur.color],.5,0);}
     ghostEdge.opacity=.5+Math.sin(time*8)*.3;
@@ -728,11 +761,11 @@ grid=Array.from({length:H},emptyLayer);cubes=Array.from({length:H},emptyCubes);
 // демо-кубики на заставке
 (function demo(){
   for(let i=0;i<14;i++){const x=Math.floor(rnd(0,W)),z=Math.floor(rnd(0,D));let y=0;while(y<H&&grid[y][z][x])y++;if(y>3)continue;
-    const ci=i%COLORS.length;grid[y][z][x]=ci+1;const m=makeCube(ci);m.position.set(cx(x),cy(y)+8+i,cz(z));m.userData.ty=cy(y);m.userData.pulse=0;world.add(m);cubes[y][z][x]=m;}
+    const ci=layerColor(y);grid[y][z][x]=ci+1;const m=makeCube(ci);m.position.set(cx(x),cy(y)+8+i,cz(z));m.userData.ty=cy(y);m.userData.pulse=0;world.add(m);cubes[y][z][x]=m;}
   updateMeters();
 })();
 // хуки для тестов
-window.__game={move,toss,hardDrop,get state(){return state},get score(){return score},fill(y){for(let z=0;z<D;z++)for(let x=0;x<W;x++){if(!grid[y][z][x]){grid[y][z][x]=1+(x+z)%COLORS.length;const m=makeCube((x+z)%COLORS.length);m.position.set(cx(x),cy(y),cz(z));m.userData.ty=cy(y);m.userData.pulse=0;world.add(m);cubes[y][z][x]=m;}}updateMeters();}};
+window.__game={move,toss,hardDrop,get state(){return state},get score(){return score},fill(y){for(let z=0;z<D;z++)for(let x=0;x<W;x++){if(!grid[y][z][x]){grid[y][z][x]=1;const m=makeCube(layerColor(y));m.position.set(cx(x),cy(y),cz(z));m.userData.ty=cy(y);m.userData.pulse=0;world.add(m);cubes[y][z][x]=m;}}updateMeters();}};
 requestAnimationFrame(frame);
 })();
 </script>
